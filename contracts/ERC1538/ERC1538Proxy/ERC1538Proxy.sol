@@ -16,7 +16,7 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-pragma solidity ^0.6.0;
+pragma solidity ^0.7.0;
 
 import "../../Upgradeability/Proxy.sol";
 import "../ERC1538Core.sol";
@@ -25,7 +25,6 @@ import "../ERC1538Core.sol";
 contract ERC1538Proxy is ERC1538Core, Proxy
 {
 	constructor(address _erc1538Delegate)
-	public
 	{
 		_setFunc("updateContract(address,string,string)", _erc1538Delegate);
 		emit CommitMessage("Added ERC1538 updateContract function at contract creation");
