@@ -16,7 +16,7 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-pragma solidity >=0.6.0 <0.9.0;
+pragma solidity ^0.6.0;
 
 /**
  * @title Proxy
@@ -30,7 +30,7 @@ abstract contract Proxy {
    * @dev Receive function.
    * Implemented entirely in `_fallback`.
    */
-  receive() external payable virtual {
+  receive() external payable {
     _fallback();
   }
 

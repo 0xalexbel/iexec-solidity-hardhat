@@ -16,7 +16,7 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-pragma solidity >=0.6.0 <0.9.0;
+pragma solidity ^0.6.0;
 
 import "../ERC1538Module.sol";
 
@@ -38,50 +38,48 @@ contract ERC1538QueryDelegate is ERC1538Query, ERC1538Module
 	function totalFunctions()
 	external override view returns(uint256)
 	{
-		return _length();
+		return m_funcs.length();
 	}
 
 	function functionByIndex(uint256 _index)
 	external override view returns(string memory signature, bytes4 id, address delegate)
 	{
-		(bytes4 funcId, address funcDelegate, bytes memory funcSignature) = _at(_index + 1);
+		(bytes4 funcId, address funcDelegate, bytes memory funcSignature) = m_funcs.at(_index + 1);
 		return (string(funcSignature), funcId, funcDelegate);
 	}
 
 	function functionById(bytes4 _funcId)
 	external override view returns(string memory signature, bytes4 id, address delegate)
 	{
-	    return (string(_value2(_funcId)), _funcId, _value1(_funcId));
-		//return (string(m_funcs.value2(_funcId)), _funcId, m_funcs.value1(_funcId));
+		return (string(m_funcs.value2(_funcId)), _funcId, m_funcs.value1(_funcId));
 	}
 
 	function functionExists(string calldata _funcSignature)
 	external override view returns(bool)
 	{
-		return _contains(bytes4(keccak256(bytes(_funcSignature))));
+		return m_funcs.contains(bytes4(keccak256(bytes(_funcSignature))));
 	}
 
 	function delegateAddress(string calldata _funcSignature)
 	external override view returns(address)
 	{
-		return _value1(bytes4(keccak256(bytes(_funcSignature))));
+		return m_funcs.value1(bytes4(keccak256(bytes(_funcSignature))));
 	}
 
 	function functionSignatures()
 	external override view returns(string memory)
 	{
-        uint256 len = _length();
 		uint256 signaturesLength = 0;
-		for (uint256 i = 1; i <= len; ++i)
+		for (uint256 i = 1; i <= m_funcs.length(); ++i)
 		{
-			signaturesLength += _value2AtIndex(i).length + 1; // EDIT
+			signaturesLength += m_funcs.value2(m_funcs.keyAt(i)).length + 1; // EDIT
 		}
 
 		bytes memory signatures = new bytes(signaturesLength);
 		uint256 charPos = 0;
-		for (uint256 i = 1; i <= len; ++i)
+		for (uint256 i = 1; i <= m_funcs.length(); ++i)
 		{
-			bytes memory signature = _value2AtIndex(i);
+			bytes memory signature = m_funcs.value2(m_funcs.keyAt(i));
 			for (uint256 c = 0; c < signature.length; ++c)
 			{
 				signatures[charPos] = signature[c];
@@ -97,14 +95,13 @@ contract ERC1538QueryDelegate is ERC1538Query, ERC1538Module
 	function delegateFunctionSignatures(address _delegate)
 	external override view returns(string memory)
 	{
-        uint256 len = _length();
-		bytes[] memory delegateSignatures = new bytes[](len);
+		bytes[] memory delegateSignatures = new bytes[](m_funcs.length());
 		uint256 delegateSignaturesLength = 0;
 
 		uint256 signaturesLength = 0;
-		for (uint256 i = 1; i <= len; ++i)
+		for (uint256 i = 1; i <= m_funcs.length(); ++i)
 		{
-			(, address funcDelegate, bytes memory funcSignature) = _at(i);
+			(bytes4 funcId, address funcDelegate, bytes memory funcSignature) = m_funcs.at(i);
 			if (_delegate == funcDelegate)
 			{
 				signaturesLength += funcSignature.length + 1;
@@ -133,13 +130,12 @@ contract ERC1538QueryDelegate is ERC1538Query, ERC1538Module
 	function delegateAddresses()
 	external override view returns(address[] memory)
 	{
-        uint256 len = _length();
-		address[] memory delegatesBucket = new address[](len);
+		address[] memory delegatesBucket = new address[](m_funcs.length());
 
 		uint256 numDelegates = 0;
-		for (uint256 i = 1; i <= len; ++i)
+		for (uint256 i = 1; i <= m_funcs.length(); ++i)
 		{
-			address delegate = _value1AtIndex(i);
+			address delegate = m_funcs.value1(m_funcs.keyAt(i));
 			bool seen = false;
 			for (uint256 j = 0; j < numDelegates; ++j)
 			{
