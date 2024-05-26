@@ -27,14 +27,13 @@ contract ERC1538Proxy is ERC1538Core, Proxy
 	constructor(address _erc1538Delegate)
 	public
 	{
-		_transferOwnership(msg.sender);
 		_setFunc("updateContract(address,string,string)", _erc1538Delegate);
 		emit CommitMessage("Added ERC1538 updateContract function at contract creation");
 	}
 
 	function _implementation() internal override view returns (address)
 	{
-		address delegateFunc = m_funcs.value1(msg.sig);
+		address delegateFunc = _value1(msg.sig);
 
 		if (delegateFunc != address(0))
 		{
@@ -42,7 +41,7 @@ contract ERC1538Proxy is ERC1538Core, Proxy
 		}
 		else
 		{
-			return m_funcs.value1(0xFFFFFFFF);
+			return _value1(0xFFFFFFFF);
 		}
 	}
 }

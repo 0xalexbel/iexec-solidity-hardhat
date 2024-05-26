@@ -36,7 +36,7 @@ contract ERC1538Core is IERC1538, ERC1538Store
 		if (funcId == RECEIVE ) { funcId = bytes4(0x00000000); }
 		if (funcId == FALLBACK) { funcId = bytes4(0xFFFFFFFF); }
 
-		address oldDelegate = m_funcs.value1(funcId);
+		address oldDelegate = _value1(funcId);
 
 		if (funcDelegate == oldDelegate) // No change → skip
 		{
@@ -44,11 +44,11 @@ contract ERC1538Core is IERC1538, ERC1538Store
 		}
 		else if (funcDelegate == address(0)) // Delete
 		{
-			m_funcs.del(funcId);
+			_del(funcId);
 		}
 		else // Set / Update
 		{
-			m_funcs.set(funcId, funcDelegate, bytes(funcSignature));
+			_set(funcId, funcDelegate, bytes(funcSignature));
 		}
 
 		emit FunctionUpdate(funcId, oldDelegate, funcDelegate, funcSignature);
