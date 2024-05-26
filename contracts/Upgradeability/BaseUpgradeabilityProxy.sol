@@ -16,7 +16,7 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-pragma solidity ^0.6.0;
+pragma solidity >=0.6.0 <0.9.0;
 
 import '@openzeppelin/contracts/utils/Address.sol';
 import './Proxy.sol';
@@ -66,7 +66,7 @@ contract BaseUpgradeabilityProxy is Proxy {
    * @param newImplementation Address of the new implementation.
    */
   function _setImplementation(address newImplementation) internal {
-    require(Address.isContract(newImplementation), "Cannot set a proxy implementation to a non-contract address");
+    require(address(newImplementation).code.length > 0, "Cannot set a proxy implementation to a non-contract address");
 
     bytes32 slot = IMPLEMENTATION_SLOT;
 

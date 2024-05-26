@@ -14,27 +14,77 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-function prepareSalt(salt, call="")
-{
-	return web3.utils.soliditySha3(
-		{ t: 'bytes32', v: salt   },
-		{ t: 'bytes',   v: call   },
-	);
+const { ethers } = require("hardhat");
+const web3Utils = require("web3-utils");
+
+/**
+ * @param {any} salt
+ * @returns {string}
+ */
+function prepareSalt(salt, call = "") {
+  let a = web3Utils.soliditySha3(
+    { t: "bytes", v: salt },
+    { t: "bytes", v: call }
+  );
+  let b = call ? ethers.getBytes(call) : new Uint8Array();
+  let c = ethers.solidityPackedKeccak256(["bytes32", "bytes"], [salt, b]);
+  if (a !== c) {
+    throw new Error("Ethers & web3 differs!");
+  }
+  return c;
 }
-function create2(address, code, salt)
-{
-	return web3.utils.toChecksumAddress(web3.utils.soliditySha3(
-		{ t: 'bytes1',  v: '0xff'                     },
-		{ t: 'address', v: address                    },
-		{ t: 'bytes32', v: salt                       },
-		{ t: 'bytes32', v: web3.utils.keccak256(code) },
-	).slice(26));
+
+function web3_create2(address, code, salt) {
+  let a = web3Utils.soliditySha3(
+    { t: "bytes1", v: "0xff" },
+    { t: "address", v: address },
+    { t: "bytes", v: salt },
+    { t: "bytes", v: web3Utils.keccak256(code) }
+  );
+  if (!a) {
+    return "";
+  }
+  return a.slice(26);
 }
-function predict(address, code, salt, call="")
-{
-	return create2(address, code, prepareSalt(salt, call));
+
+/**
+ * @param {any} address
+ * @param {import("ethers").BytesLike} code
+ * @param {string} salt
+ * @returns {string}
+ */
+function create2(address, code, salt) {
+  let no_checksum_addr_web3 = web3_create2(address, code, salt);
+  let no_checksum_addr = ethers
+    .solidityPackedKeccak256(
+      ["bytes1", "address", "bytes32", "bytes32"],
+      ["0xff", address, salt, ethers.keccak256(code)]
+    )
+    .slice(26);
+
+  if (no_checksum_addr_web3 !== no_checksum_addr) {
+    throw new Error("Ethers & web3 differs!");
+  }
+
+  let checksum_addr = ethers.getAddress(no_checksum_addr);
+  if (web3Utils.toChecksumAddress(no_checksum_addr_web3) !== checksum_addr) {
+    throw new Error("Ethers & web3 differs!");
+  }
+
+  return checksum_addr;
+}
+
+/**
+ * @param {any} address
+ * @param {import("ethers").BytesLike} code
+ * @param {any} salt
+ * @param {string | undefined} call
+ * @returns {string}
+ */
+function predict(address, code, salt, call = "") {
+  return create2(address, code, prepareSalt(salt, call));
 }
 
 module.exports = {
-	predict,
-}
+  predict,
+};

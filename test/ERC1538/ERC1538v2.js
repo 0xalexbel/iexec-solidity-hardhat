@@ -1,232 +1,358 @@
-/******************************************************************************
- * Copyright 2020 IEXEC BLOCKCHAIN TECH                                       *
- *                                                                            *
- * Licensed under the Apache License, Version 2.0 (the "License");            *
- * you may not use this file except in compliance with the License.           *
- * You may obtain a copy of the License at                                    *
- *                                                                            *
- *     http://www.apache.org/licenses/LICENSE-2.0                             *
- *                                                                            *
- * Unless required by applicable law or agreed to in writing, software        *
- * distributed under the License is distributed on an "AS IS" BASIS,          *
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
- * See the License for the specific language governing permissions and        *
- * limitations under the License.                                             *
- ******************************************************************************/
+const fs = require("fs");
+const { ethers } = require("hardhat");
+const { expect } = require("chai");
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
 
-var ERC1538Proxy  = artifacts.require("./ERC1538ProxyV2");
-var ERC1538Update = artifacts.require("./ERC1538UpdateV2Delegate");
-var ERC1538Query  = artifacts.require("./ERC1538QueryDelegate");
-var TestContract  = artifacts.require("./TestContract");
-
-const { expectRevert } = require('@openzeppelin/test-helpers');
-
-function getSerializedObject(entry)
-{
-	if (entry.type == 'tuple')
-	{
-		return '(' + entry.components.map(getSerializedObject).join(',') + ')'
-	}
-	else
-	{
-		return entry.type;
-	}
+function getSerializedObject(entry) {
+  if (entry.type == "tuple") {
+    return "(" + entry.components.map(getSerializedObject).join(",") + ")";
+  } else {
+    return entry.type;
+  }
 }
 
-function getFunctionSignatures(abi)
-{
-	return abi
-		.filter(entry => entry.type == 'function')
-		.filter(entry => !entry.name.startsWith('coverage_0x')) // remove solidity coverage injected code
-		.map(entry => entry.name + '(' + entry.inputs.map(getSerializedObject).join(',') + ')')
+/**
+ * @param {any[]} abi
+ */
+function getFunctionSignatures(abi) {
+  return abi
+    .filter((entry) => entry.type == "function")
+    .filter((entry) => !entry.name.startsWith("coverage_0x")) // remove solidity coverage injected code
+    .map(
+      (entry) =>
+        entry.name + "(" + entry.inputs.map(getSerializedObject).join(",") + ")"
+    );
 }
 
-function extractEvents(txMined, address, name)
-{
-	return txMined.logs.filter((ev) => { return ev.address == address && ev.event == name; });
+function extractEvents(txMined, address, name) {
+  return txMined.logs.filter((ev) => {
+    let ok = ev.address == address && ev.eventName == name;
+    return ev.address == address && ev.eventName == name;
+  });
 }
 
-contract('ERC1538', async (accounts) => {
+async function fixture() {
+  const [owner, other] = await ethers.getSigners();
 
-	before("configure", async () => {
-		ERC1538UpdateInstance = await ERC1538Update.new();
-		ERC1538QueryInstance  = await ERC1538Query.new();
+  // ERC1538UpdateInstance = await ERC1538Update.new();
+  const ERC1538UpdateDelegateInstance = await ethers.deployContract(
+    "ERC1538UpdateV2Delegate"
+  );
+  const ERC1538UpdateDelegateInstance_addr =
+    await ERC1538UpdateDelegateInstance.getAddress();
 
-		ProxyInterface        = await ERC1538Proxy.new(ERC1538UpdateInstance.address);
-		UpdateInterface       = await ERC1538Update.at(ProxyInterface.address);
-		QueryInterface        = await ERC1538Query.at(ProxyInterface.address);
+  // ERC1538QueryInstance = await ERC1538Query.new();
+  const ERC1538QueryDelegateInstance = await ethers.deployContract(
+    "ERC1538QueryDelegate"
+  );
+  const ERC1538QueryDelegateInstance_addr =
+    await ERC1538QueryDelegateInstance.getAddress();
 
-		TestContractInstance  = await TestContract.new();
+  // ProxyInterface = await ERC1538Proxy.new(ERC1538UpdateInstance.address);
+  const ProxyInterface = await ethers.deployContract("ERC1538ProxyV2", [
+    ERC1538UpdateDelegateInstance_addr,
+  ]);
+  const ProxyInterface_addr = await ProxyInterface.getAddress();
 
-		for (delegate of [ ERC1538QueryInstance ])
-		{
-			await UpdateInterface.updateContract(
-				delegate.address,
-				getFunctionSignatures(delegate.abi),
-				`Linking ${delegate.contractName}`
-			);
-		}
+  // UpdateInterface = await ERC1538Update.at(ProxyInterface.address);
+  const ERC1538UpdateDelegateContractFactory = await ethers.getContractFactory(
+    "ERC1538UpdateV2Delegate"
+  );
+  const UpdateInterface =
+    ERC1538UpdateDelegateContractFactory.attach(ProxyInterface_addr);
 
-		SIGNATURES = {
-			'updateContract(address,string[],string)': ERC1538UpdateInstance.address,
-			'owner()':                                 ERC1538QueryInstance.address,
-			'renounceOwnership()':                     ERC1538QueryInstance.address,
-			'transferOwnership(address)':              ERC1538QueryInstance.address,
-			'totalFunctions()':                        ERC1538QueryInstance.address,
-			'functionByIndex(uint256)':                ERC1538QueryInstance.address,
-			'functionById(bytes4)':                    ERC1538QueryInstance.address,
-			'functionExists(string)':                  ERC1538QueryInstance.address,
-			'delegateAddress(string)':                 ERC1538QueryInstance.address,
-			'functionSignatures()':                    ERC1538QueryInstance.address,
-			'delegateFunctionSignatures(address)':     ERC1538QueryInstance.address,
-			'delegateAddresses()':                     ERC1538QueryInstance.address,
-		}
+  // QueryInterface = await ERC1538Query.at(ProxyInterface.address);
+  const ERC1538QueryDelegateContractFactory = await ethers.getContractFactory(
+    "ERC1538QueryDelegate"
+  );
+  const QueryInterface =
+    ERC1538QueryDelegateContractFactory.attach(ProxyInterface_addr);
 
-	});
+  // TestContractInstance = await TestContract.new();
+  const TestContractInstance = await ethers.deployContract("TestContract");
+  const TestContractInstance_addr = await TestContractInstance.getAddress();
 
-	it("Ownership", async () => {
-		assert.equal(await ERC1538UpdateInstance.owner(), "0x0000000000000000000000000000000000000000");
-		assert.equal(await ERC1538QueryInstance.owner(),  "0x0000000000000000000000000000000000000000");
-		assert.equal(await ProxyInterface.owner(),        accounts[0]);
-		assert.equal(await UpdateInterface.owner(),       accounts[0]);
-		assert.equal(await QueryInterface.owner(),        accounts[0]);
-	});
+  const ERC1538QueryDelegate_artifact = JSON.parse(
+    fs.readFileSync(
+      "./artifacts/contracts/ERC1538/ERC1538Modules/ERC1538Query.sol/ERC1538QueryDelegate.json",
+      "utf8"
+    )
+  );
 
-	it("ERC1538Query - totalFunctions", async () => {
-		assert.equal(await QueryInterface.totalFunctions(), Object.keys(SIGNATURES).length);
-	});
+  await UpdateInterface.updateContract(
+    ERC1538QueryDelegateInstance_addr,
+    getFunctionSignatures(ERC1538QueryDelegate_artifact.abi),
+    "Linking ERC1538QueryDelegate"
+  );
 
-	it("ERC1538Query - functionByIndex", async () => {
-		for (const i in Object.keys(SIGNATURES))
-		{
-			const [ signature, delegate ] = Object.entries(SIGNATURES)[i];
-			const id                      = web3.utils.soliditySha3({t: 'string', v: signature}).substr(0, 10)
+  const signatures = {
+    "updateContract(address,string[],string)":
+      ERC1538UpdateDelegateInstance_addr,
+    "delegateAddress(string)": ERC1538QueryDelegateInstance_addr,
+    "delegateAddresses()": ERC1538QueryDelegateInstance_addr,
+    "delegateFunctionSignatures(address)": ERC1538QueryDelegateInstance_addr,
+    "functionById(bytes4)": ERC1538QueryDelegateInstance_addr,
+    "functionByIndex(uint256)": ERC1538QueryDelegateInstance_addr,
+    "functionExists(string)": ERC1538QueryDelegateInstance_addr,
+    "functionSignatures()": ERC1538QueryDelegateInstance_addr,
+    "owner()": ERC1538QueryDelegateInstance_addr,
+    "renounceOwnership()": ERC1538QueryDelegateInstance_addr,
+    "totalFunctions()": ERC1538QueryDelegateInstance_addr,
+    "transferOwnership(address)": ERC1538QueryDelegateInstance_addr,
+  };
 
-			const result                  = await QueryInterface.functionByIndex(i);
-			assert.equal(result.signature, signature);
-			assert.equal(result.id,        id);
-			assert.equal(result.delegate,  delegate);
-		}
-	});
+  const test_signatures = {
+    "transferOwnership(address)": ERC1538QueryDelegateInstance_addr,
+  };
 
-	it("ERC1538Query - functionById", async () => {
-		for (const i in Object.keys(SIGNATURES))
-		{
-			const [ signature, delegate ] = Object.entries(SIGNATURES)[i];
-			const id                      = web3.utils.soliditySha3({t: 'string', v: signature}).substr(0, 10)
+  return {
+    owner,
+    other,
+    ERC1538UpdateDelegateInstance,
+    ERC1538QueryDelegateInstance,
+    TestContractInstance,
+    ProxyInterface,
+    UpdateInterface,
+    QueryInterface,
+    signatures,
+    test_signatures,
+  };
+}
 
-			const result                  = await QueryInterface.functionById(id);
-			assert.equal(result.signature, signature);
-			assert.equal(result.id,        id);
-			assert.equal(result.delegate,  delegate);
-		}
-	});
+describe("ERC1538v2", function () {
+  beforeEach(async function () {
+    Object.assign(this, await loadFixture(fixture));
+  });
 
-	it("ERC1538Query - functionExists", async () => {
-		for (const signature of Object.keys(SIGNATURES))
-		{
-			assert.isTrue(await QueryInterface.functionExists(signature));
-		}
-	});
+  it("emits ownership transfer events during construction", async function () {
+    await expect(this.ERC1538UpdateDelegateInstance.deploymentTransaction())
+      .to.emit(this.ERC1538UpdateDelegateInstance, "OwnershipTransferred")
+      .withArgs(ethers.ZeroAddress, this.owner)
+      .and.to.emit(this.ERC1538UpdateDelegateInstance, "OwnershipTransferred")
+      .withArgs(this.owner, ethers.ZeroAddress);
+  });
 
-	it("ERC1538Query - functionSignatures", async () => {
-		assert.equal(
-			await QueryInterface.functionSignatures(),
-			[
-				...Object.keys(SIGNATURES),
-				''
-			].join(';')
-		);
-	});
+  it("Ownership", async function () {
+    expect(await this.ERC1538UpdateDelegateInstance.owner()).to.equal(
+      ethers.ZeroAddress
+    );
+    expect(await this.ERC1538QueryDelegateInstance.owner()).to.equal(
+      ethers.ZeroAddress
+    );
+    expect(await this.ProxyInterface.owner()).to.equal(this.owner);
+    expect(await this.UpdateInterface.owner()).to.equal(this.owner);
+    expect(await this.QueryInterface.owner()).to.equal(this.owner);
+  });
 
-	it("ERC1538Query - delegateFunctionSignatures", async () => {
-		for (delegate of await QueryInterface.delegateAddresses())
-		{
-			assert.equal(
-				await QueryInterface.delegateFunctionSignatures(delegate),
-				[
-					...Object.entries(SIGNATURES).filter(([s, d]) => d == delegate).map(([s,d]) => s),
-					''
-				].join(';')
-			);
-		}
-	});
+  it("ERC1538Query - totalFunctions", async function () {
+    expect(await this.QueryInterface.totalFunctions()).to.equal(
+      Object.keys(this.signatures).length
+    );
+  });
 
-	it("ERC1538Query - delegateAddress", async () => {
-		for (const [ signature, delegate ] of Object.entries(SIGNATURES))
-		{
-			assert.equal(
-				await QueryInterface.delegateAddress(signature),
-				delegate
-			);
-		}
-	});
+  it("ERC1538Query - functionByIndex", async function () {
+    for (const i in Object.keys(this.signatures)) {
+      const [signature, delegate] = Object.entries(this.signatures)[i];
+      const id = ethers
+        .solidityPackedKeccak256(["string"], [signature])
+        .substring(0, 10);
+      const result = await this.QueryInterface.functionByIndex(i);
+      expect(result.signature).to.equal(signature);
+      expect(result.id).to.equal(id);
+      expect(result.delegate).to.equal(delegate);
+    }
+  });
 
-	it("ERC1538Query - delegateAddresses", async () => {
-		assert.deepEqual(
-			(await QueryInterface.delegateAddresses()),
-			Object.values(SIGNATURES).filter((v, i, a) => a.indexOf(v) === i)
-		);
-	});
+  it("ERC1538Query - functionById", async function () {
+    for (const i in Object.keys(this.signatures)) {
+      const [signature, delegate] = Object.entries(this.signatures)[i];
+      const id = ethers
+        .solidityPackedKeccak256(["string"], [signature])
+        .substring(0, 10);
+      const result = await this.QueryInterface.functionById(id);
+      expect(result.signature).to.equal(signature);
+      expect(result.id).to.equal(id);
+      expect(result.delegate).to.equal(delegate);
+    }
+  });
 
-	it("ERC1538 - receive", async () => {
-		tx = await UpdateInterface.updateContract(TestContractInstance.address, [ "receive" ], "adding receive delegate");
+  it("ERC1538Query - functionExists", async function () {
+    for (const signature of Object.keys(this.signatures)) {
+      expect(await this.QueryInterface.functionExists(signature)).to.equal(
+        true
+      );
+    }
+  });
 
-		evs = extractEvents(tx, UpdateInterface.address, "FunctionUpdate");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.functionId,        "0x0000000000000000000000000000000000000000000000000000000000000000");
-		assert.equal(evs[0].args.oldDelegate,       "0x0000000000000000000000000000000000000000");
-		assert.equal(evs[0].args.newDelegate,       TestContractInstance.address);
-		assert.equal(evs[0].args.functionSignature, "receive");
+  it("ERC1538Query - functionSignatures", async function () {
+    expect(await this.QueryInterface.functionSignatures()).to.equal(
+      [...Object.keys(this.signatures), ""].join(";")
+    );
+  });
 
-		evs = extractEvents(tx, UpdateInterface.address, "CommitMessage");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.message, "adding receive delegate");
+  it("ERC1538Query - delegateFunctionSignatures", async function () {
+    for (let delegate of await this.QueryInterface.delegateAddresses()) {
+      expect(
+        await this.QueryInterface.delegateFunctionSignatures(delegate)
+      ).to.equal(
+        [
+          ...Object.entries(this.signatures)
+            .filter(([s, d]) => d == delegate)
+            .map(([s, d]) => s),
+          "",
+        ].join(";")
+      );
+    }
+  });
 
-		tx = await web3.eth.sendTransaction({ from: accounts[0], to: UpdateInterface.address, value: 0, data: "0x", gasLimit: 500000 });
-		assert.equal(tx.logs[0].topics[0], web3.utils.keccak256("Receive(uint256,bytes)"));
-	});
+  it("ERC1538Query - delegateAddress", async function () {
+    for (const [signature, delegate] of Object.entries(this.signatures)) {
+      expect(await this.QueryInterface.delegateAddress(signature)).to.equal(
+        delegate
+      );
+    }
+  });
 
-	it("ERC1538 - fallback", async () => {
-		tx = await UpdateInterface.updateContract(TestContractInstance.address, [ "fallback" ], "adding fallback delegate");
+  it("ERC1538Query - delegateAddresses", async function () {
+    expect(await this.QueryInterface.delegateAddresses()).to.deep.equal(
+      Object.values(this.signatures).filter((v, i, a) => a.indexOf(v) === i)
+    );
+  });
 
-		evs = extractEvents(tx, UpdateInterface.address, "FunctionUpdate");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.functionId,        "0xffffffff00000000000000000000000000000000000000000000000000000000");
-		assert.equal(evs[0].args.oldDelegate,       "0x0000000000000000000000000000000000000000");
-		assert.equal(evs[0].args.newDelegate,       TestContractInstance.address);
-		assert.equal(evs[0].args.functionSignature, "fallback");
+  it("ERC1538 - receive", async function () {
+    let test_addr = await this.TestContractInstance.getAddress();
+    let update_addr = await this.UpdateInterface.getAddress();
 
-		evs = extractEvents(tx, UpdateInterface.address, "CommitMessage");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.message, "adding fallback delegate");
+    let tx = await this.UpdateInterface.updateContract(
+      test_addr,
+      ["receive"],
+      "adding receive delegate"
+    );
+    let result = await tx.wait();
+    let evs = extractEvents(result, update_addr, "FunctionUpdate");
 
-		tx = await web3.eth.sendTransaction({ from: accounts[0], to: UpdateInterface.address, value: 0, data: "0xc0ffee", gasLimit: 500000 });
-		assert.equal(tx.logs[0].topics[0], web3.utils.keccak256("Fallback(uint256,bytes)"));
-	});
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.functionId).to.equal("0x00000000");
+    expect(evs[0].args.oldDelegate).to.equal(
+      "0x0000000000000000000000000000000000000000"
+    );
+    expect(evs[0].args.newDelegate).to.equal(test_addr);
+    expect(evs[0].args.functionSignature).to.equal("receive");
 
-	it("ERC1538 - no update", async () => {
-		tx = await UpdateInterface.updateContract(TestContractInstance.address, [ "fallback" ], "no changes");
+    evs = extractEvents(result, update_addr, "CommitMessage");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.message).to.equal("adding receive delegate");
 
-		evs = extractEvents(tx, UpdateInterface.address, "FunctionUpdate");
-		assert.equal(evs.length, 0);
+    tx = await this.owner.sendTransaction({
+      to: update_addr,
+      value: 1,
+      data: "0x",
+      gasLimit: 500000,
+    });
+    result = await tx.wait();
 
-		evs = extractEvents(tx, UpdateInterface.address, "CommitMessage");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.message, "no changes");
-	});
+    expect(result.logs[0].topics[0]).equal(
+      ethers.keccak256(ethers.toUtf8Bytes("Receive(uint256,bytes)"))
+    );
+  });
 
-	it("ERC1538 - remove fallback", async () => {
-		tx = await UpdateInterface.updateContract("0x0000000000000000000000000000000000000000", [ "fallback" ], "removing");
+  it("ERC1538 - fallback", async function () {
+    let test_addr = await this.TestContractInstance.getAddress();
+    let update_addr = await this.UpdateInterface.getAddress();
 
-		evs = extractEvents(tx, UpdateInterface.address, "FunctionUpdate");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.oldDelegate,       TestContractInstance.address);
-		assert.equal(evs[0].args.newDelegate,       "0x0000000000000000000000000000000000000000");
-		assert.equal(evs[0].args.functionSignature, "fallback");
+    let tx = await this.UpdateInterface.updateContract(
+      test_addr,
+      ["fallback"],
+      "adding fallback delegate"
+    );
+    let result = await tx.wait();
 
-		evs = extractEvents(tx, UpdateInterface.address, "CommitMessage");
-		assert.equal(evs.length, 1);
-		assert.equal(evs[0].args.message, "removing");
-	});
+    let evs = extractEvents(result, update_addr, "FunctionUpdate");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.functionId).to.equal("0xffffffff");
+    expect(evs[0].args.oldDelegate).to.equal(
+      "0x0000000000000000000000000000000000000000"
+    );
+    expect(evs[0].args.newDelegate).to.equal(test_addr);
+    expect(evs[0].args.functionSignature).to.equal("fallback");
+
+    evs = extractEvents(result, update_addr, "CommitMessage");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.message).to.equal("adding fallback delegate");
+
+    tx = await this.owner.sendTransaction({
+      to: update_addr,
+      value: 1,
+      data: "0xc0ffee",
+      gasLimit: 500000,
+    });
+    result = await tx.wait();
+
+    expect(result.logs[0].topics[0]).equal(
+      ethers.keccak256(ethers.toUtf8Bytes("Fallback(uint256,bytes)"))
+    );
+  });
+
+  it("ERC1538 - no update", async function () {
+    let test_addr = await this.TestContractInstance.getAddress();
+    let update_addr = await this.UpdateInterface.getAddress();
+
+    // Add fallback
+    let tx = await this.UpdateInterface.updateContract(
+      test_addr,
+      ["fallback"],
+      "adding fallback delegate"
+    );
+    let result = await tx.wait();
+    let evs = extractEvents(result, update_addr, "FunctionUpdate");
+
+    // Add again, test no change
+    tx = await this.UpdateInterface.updateContract(
+      test_addr,
+      ["fallback"],
+      "no changes"
+    );
+    result = await tx.wait();
+
+    evs = extractEvents(result, update_addr, "FunctionUpdate");
+    expect(evs).lengthOf(0);
+
+    evs = extractEvents(result, update_addr, "CommitMessage");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.message).to.equal("no changes");
+  });
+
+  it("ERC1538 - remove fallback", async function () {
+    let test_addr = await this.TestContractInstance.getAddress();
+    let update_addr = await this.UpdateInterface.getAddress();
+
+    // Add fallback
+    let tx = await this.UpdateInterface.updateContract(
+      test_addr,
+      ["fallback"],
+      "adding fallback delegate"
+    );
+    let result = await tx.wait();
+    let evs = extractEvents(result, update_addr, "FunctionUpdate");
+
+    // Remove fallback
+    tx = await this.UpdateInterface.updateContract(
+      "0x0000000000000000000000000000000000000000",
+      ["fallback"],
+      "removing"
+    );
+    result = await tx.wait();
+
+    evs = extractEvents(result, update_addr, "FunctionUpdate");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.oldDelegate).to.equal(test_addr);
+    expect(evs[0].args.newDelegate).to.equal(
+      "0x0000000000000000000000000000000000000000"
+    );
+    expect(evs[0].args.functionSignature).to.equal("fallback");
+
+    evs = extractEvents(result, update_addr, "CommitMessage");
+    expect(evs).lengthOf(1);
+    expect(evs[0].args.message).to.equal("removing");
+  });
 });

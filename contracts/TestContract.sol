@@ -16,33 +16,30 @@
  * limitations under the License.                                             *
  ******************************************************************************/
 
-pragma solidity ^0.6.0;
+pragma solidity >=0.6.0 <0.9.0;
 
-contract TestContract
-{
-	string  public constant id = "TestContract";
-	address public caller;
-	bytes   public value;
+contract TestContract {
+    string public constant id = "TestContract";
+    address public caller;
+    bytes public value;
 
-	event Receive(uint256 value, bytes data);
-	event Fallback(uint256 value, bytes data);
+    event Receive(uint256 value, bytes data);
+    event Fallback(uint256 value, bytes data);
 
-	receive()
-	external payable
-	{
-		emit Receive(msg.value, msg.data);
-	}
+    receive() external payable {
+        _emitReceive();
+    }
 
-	fallback()
-	external payable
-	{
-		emit Fallback(msg.value, msg.data);
-	}
+    fallback() external payable {
+        emit Fallback(msg.value, msg.data);
+    }
 
-	function set(bytes calldata _value)
-	external
-	{
-		caller = msg.sender;
-		value  = _value;
-	}
+    function _emitReceive() private {
+        emit Receive(msg.value, msg.data);
+    }
+
+    function set(bytes calldata _value) external {
+        caller = msg.sender;
+        value = _value;
+    }
 }

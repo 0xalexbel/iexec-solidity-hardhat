@@ -1,105 +1,138 @@
-/******************************************************************************
- * Copyright 2020 IEXEC BLOCKCHAIN TECH                                       *
- *                                                                            *
- * Licensed under the Apache License, Version 2.0 (the "License");            *
- * you may not use this file except in compliance with the License.           *
- * You may obtain a copy of the License at                                    *
- *                                                                            *
- *     http://www.apache.org/licenses/LICENSE-2.0                             *
- *                                                                            *
- * Unless required by applicable law or agreed to in writing, software        *
- * distributed under the License is distributed on an "AS IS" BASIS,          *
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
- * See the License for the specific language governing permissions and        *
- * limitations under the License.                                             *
- ******************************************************************************/
+const { ethers } = require("hardhat");
+const { expect } = require("chai");
+const { loadFixture } = require("@nomicfoundation/hardhat-network-helpers");
+const { predict } = require("./predict");
 
-var GenericFactory = artifacts.require("GenericFactory");
-var TestContract   = artifacts.require("TestContract");
-
-const { expectRevert } = require('@openzeppelin/test-helpers');
-const { predict } = require('./predict.js');
-
-function extractEvents(txMined, address, name)
-{
-	return txMined.logs.filter((ev) => { return ev.address == address && ev.event == name; });
+/**
+ * @param {{ logs: any[]; }} txMined
+ * @param {any} address
+ * @param {string} name
+ */
+function extractEvents(txMined, address, name) {
+  return txMined.logs.filter(
+    (/** @type {{ address: any; eventName: any; }} */ ev) => {
+      return ev.address == address && ev.eventName == name;
+    }
+  );
 }
 
-contract('GenericFactory', async (accounts) => {
+function random32() {
+  return ethers.zeroPadValue(ethers.randomBytes(31), 32);
+}
 
-	before("configure", async () => {
-		GenericFactoryInstance = await GenericFactory.new();
-	});
+async function fixture() {
+  const [owner, other] = await ethers.getSigners();
 
-	describe("createContract", async () => {
+  const GenericFactoryInstance = await ethers.deployContract("GenericFactory");
+  const GenericFactoryInstance_addr = await GenericFactoryInstance.getAddress();
 
-		code = new web3.eth.Contract(TestContract.abi).deploy({
-			data: TestContract.bytecode,
-			arguments: []
-		}).encodeABI();
+  return { owner, other, GenericFactoryInstance, GenericFactoryInstance_addr };
+}
 
-		it("select random salt", async () => {
-			salt = web3.utils.randomHex(32);
-		});
+async function fixture2() {
+  const TestContractInstance = await ethers.deployContract("TestContract");
 
-		it("predict address", async () => {
-			predictedAddress = predict(GenericFactoryInstance.address, code, salt);
-			assert.equal(await GenericFactoryInstance.predictAddress(code, salt), predictedAddress);
-		});
+  /*
+    deploy_tx.data == contract code + constructor parameters
+  */
+  let deploy_tx = TestContractInstance.deploymentTransaction();
+  let code = deploy_tx?.data;
 
-		it("success (first)", async () => {
-			txMined = await GenericFactoryInstance.createContract(code, salt);
-			events = extractEvents(txMined, GenericFactoryInstance.address, "NewContract");
-			assert.equal(events[0].args.addr, predictedAddress);
-		});
+  let salt = ethers.hexlify(ethers.randomBytes(32));
+  let value = ethers.hexlify(ethers.randomBytes(64));
+  let call = TestContractInstance.interface.encodeFunctionData("set", [value]);
 
-		it("failure (duplicate)", async () => {
-			await expectRevert.unspecified(GenericFactoryInstance.createContract(code, salt));
-		});
+  return { code, salt, call };
+}
 
-		it("post check", async () => {
-			TestInstance = await TestContract.at(predictedAddress);
-			assert.equal(await TestInstance.id(),     "TestContract");
-			assert.equal(await TestInstance.caller(), "0x0000000000000000000000000000000000000000");
-			assert.equal(await TestInstance.value(),  null);
-		});
+describe("GenericFactory", async function () {
+  before(async function () {
+    Object.assign(this, await loadFixture(fixture));
+  });
 
-	});
+  describe("createContract", async function () {
+    before(async function () {
+      Object.assign(this, await loadFixture(fixture2));
+    });
 
-	describe("createContractAndCall", async () => {
+    it("predict address + success (first) + failure (duplicate)", async function () {
+      // predict address
+      let predictedAddress = predict(
+        this.GenericFactoryInstance_addr,
+        this.code,
+        this.salt
+      );
+      let actualAddress = await this.GenericFactoryInstance.predictAddress(
+        this.code,
+        this.salt
+      );
+      expect(actualAddress).equal(predictedAddress);
 
-		code = new web3.eth.Contract(TestContract.abi).deploy({
-			data: TestContract.bytecode,
-			arguments: []
-		}).encodeABI();
+      // success (first)
+      let txMined = await this.GenericFactoryInstance.createContract(
+        this.code,
+        this.salt
+      );
+      let result = await txMined.wait();
 
-		it("select random salt and value", async () => {
-			salt  = web3.utils.randomHex(32);
-			value = web3.utils.randomHex(64);
-			call  = web3.eth.abi.encodeFunctionCall({ name: 'set', type: 'function', inputs: [{ type: 'bytes', name: '_value' }] }, [ value ]);
-		});
+      let events = extractEvents(
+        result,
+        this.GenericFactoryInstance_addr,
+        "NewContract"
+      );
+      expect(events[0].args.addr).equal(predictedAddress);
 
-		it("predict address", async () => {
-			predictedAddress = predict(GenericFactoryInstance.address, code, salt, call);
-			assert.equal(await GenericFactoryInstance.predictAddressWithCall(code, salt, call), predictedAddress);
-		});
+      // failure (duplicate)
+      await expect(
+        this.GenericFactoryInstance.createContract(this.code, this.salt)
+      ).to.be.revertedWithoutReason();
+    });
+  });
 
-		it("success (first)", async () => {
-			txMined = await GenericFactoryInstance.createContractAndCall(code, salt, call);
-			events = extractEvents(txMined, GenericFactoryInstance.address, "NewContract");
-			assert.equal(events[0].args.addr, predictedAddress);
-		});
+  describe("createContractAndCall", async function () {
+    before(async function () {
+      Object.assign(this, await loadFixture(fixture2));
+    });
 
-		it("failure (duplicate)", async () => {
-			await expectRevert.unspecified(GenericFactoryInstance.createContractAndCall(code, salt, call));
-		});
+    it("predict address + success (first) + failure (duplicate)", async function () {
+      // predict address
+      let predictedAddress = predict(
+        this.GenericFactoryInstance_addr,
+        this.code,
+        this.salt,
+        this.call
+      );
+      let actualAddress =
+        await this.GenericFactoryInstance.predictAddressWithCall(
+          this.code,
+          this.salt,
+          this.call
+        );
+      expect(actualAddress).equal(predictedAddress);
 
-		it("post check", async () => {
-			TestInstance = await TestContract.at(predictedAddress);
-			assert.equal(await TestInstance.id(),     "TestContract");
-			assert.equal(await TestInstance.caller(), GenericFactoryInstance.address);
-			assert.equal(await TestInstance.value(),  value);
-		});
+      // success (first)
+      let txMined = await this.GenericFactoryInstance.createContractAndCall(
+        this.code,
+        this.salt,
+        this.call
+      );
+      let result = await txMined.wait();
 
-	});
+      let events = extractEvents(
+        result,
+        this.GenericFactoryInstance_addr,
+        "NewContract"
+      );
+      expect(events[0].args.addr).equal(predictedAddress);
+
+      // failure (duplicate)
+      await expect(
+        this.GenericFactoryInstance.createContractAndCall(
+          this.code,
+          this.salt,
+          this.call
+        )
+      ).to.be.revertedWithoutReason();
+    });
+  });
 });
